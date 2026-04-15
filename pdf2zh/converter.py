@@ -152,16 +152,31 @@ class TranslateConverter(PDFConverterEx):
         self.noto_name = noto_name
         self.noto = noto
         self.translator: BaseTranslator = None
+        self.bridge_translator: BaseTranslator | None = None
         # e.g. "ollama:gemma2:9b" -> ["ollama", "gemma2:9b"]
         param = service.split(":", 1)
         service_name = param[0]
         service_model = param[1] if len(param) > 1 else None
         if not envs:
             envs = {}
+
+        # Vietnamese -> Chinese bridge mode:
+        # 1) Vietnamese -> English (Google)
+        # 2) English -> Chinese (selected service)
+        # This keeps existing EN->ZH translation behavior while enabling VI input.
+        lang_in_norm = (lang_in or "").lower()
+        lang_out_norm = (lang_out or "").lower()
+        zh_targets = {"zh", "zh-cn", "zh-tw", "zh-hans", "zh-hant"}
+        self.use_vi_bridge = lang_in_norm in {"vi", "vi-vn"} and lang_out_norm in zh_targets
+
         for translator in [GoogleTranslator, BingTranslator, DeepLTranslator, DeepLXTranslator, OllamaTranslator, XinferenceTranslator, AzureOpenAITranslator,
                            OpenAITranslator, ZhipuTranslator, ModelScopeTranslator, SiliconTranslator, GeminiTranslator, AzureTranslator, TencentTranslator, DifyTranslator, AnythingLLMTranslator, ArgosTranslator, GrokTranslator, GroqTranslator, DeepseekTranslator, OpenAIlikedTranslator, QwenMtTranslator,]:
             if service_name == translator.name:
-                self.translator = translator(lang_in, lang_out, service_model, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
+                if self.use_vi_bridge:
+                    self.bridge_translator = GoogleTranslator("vi", "en", None, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
+                    self.translator = translator("en", lang_out, service_model, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
+                else:
+                    self.translator = translator(lang_in, lang_out, service_model, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
         if not self.translator:
             raise ValueError("Unsupported translation service")
 
@@ -352,7 +367,11 @@ class TranslateConverter(PDFConverterEx):
             if not s.strip() or re.match(r"^\{v\d+\}$", s):  # 空白和公式不翻译
                 return s
             try:
-                new = self.translator.translate(s)
+                if self.use_vi_bridge and self.bridge_translator:
+                    mid = self.bridge_translator.translate(s)
+                    new = self.translator.translate(mid)
+                else:
+                    new = self.translator.translate(s)
                 return new
             except BaseException as e:
                 if log.isEnabledFor(logging.DEBUG):
