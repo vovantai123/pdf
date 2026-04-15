@@ -194,6 +194,7 @@ def stop_translate_file(state: dict) -> None:
     if session_id in cancellation_event_map:
         logger.info(f"Stopping translation for session {session_id}")
         cancellation_event_map[session_id].set()
+    state["session_id"] = None
 
 
 def translate_file(
@@ -332,25 +333,34 @@ def translate_file(
     try:
         if use_babeldoc:
             return babeldoc_translate_file(**param)
+
         translate(**param)
+        print(f"Files after translation: {os.listdir(output)}")
+
+        if not file_mono.exists() or not file_dual.exists():
+            raise gr.Error("No output")
+
+        progress(1.0, desc="Translation complete!")
+
+        return (
+            str(file_mono),
+            str(file_mono),
+            str(file_dual),
+            gr.update(visible=True),
+            gr.update(visible=True),
+            gr.update(visible=True),
+        )
     except CancelledError:
-        del cancellation_event_map[session_id]
         raise gr.Error("Translation cancelled")
-    print(f"Files after translation: {os.listdir(output)}")
-
-    if not file_mono.exists() or not file_dual.exists():
-        raise gr.Error("No output")
-
-    progress(1.0, desc="Translation complete!")
-
-    return (
-        str(file_mono),
-        str(file_mono),
-        str(file_dual),
-        gr.update(visible=True),
-        gr.update(visible=True),
-        gr.update(visible=True),
-    )
+    except gr.Error:
+        raise
+    except Exception as e:
+        logger.exception("Translation failed")
+        raise gr.Error(f"Translation failed: {e}")
+    finally:
+        # Always cleanup session state so next run is not stuck in pseudo-running state
+        cancellation_event_map.pop(session_id, None)
+        state["session_id"] = None
 
 
 def babeldoc_translate_file(**kwargs):
