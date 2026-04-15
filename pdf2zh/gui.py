@@ -530,7 +530,7 @@ with gr.Blocks(
     head=demo_recaptcha if flag_demo else "",
 ) as demo:
     gr.Markdown(
-        "# [PDF Translation (VI ↔ ZH) @ GitHub](https://github.com/vovantai123/pdf)"
+        "# PDF Translation (VI ↔ ZH)"
     )
 
     with gr.Row():
